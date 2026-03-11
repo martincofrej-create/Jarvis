@@ -6,7 +6,7 @@ on:
 
 env:
   PROJECT_ID: jarvis-489914
-  SERVICE_NAME: agente-contenido
+  SERVICE_NAME: jarvis
   REGION: us-central1
   REGISTRY: us-central1-docker.pkg.dev/jarvis-489914/agente-contenido
 
