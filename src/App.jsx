@@ -107,13 +107,27 @@ export default function AgenteContenido() {
   const [apiStatus, setApiStatus] = useState(null);
   const [activePlatformTab, setActivePlatformTab] = useState(null);
   const [loadingPhase, setLoadingPhase] = useState(0);
+  const [canvaStatus, setCanvaStatus] = useState(null);
+  const [canvaDesigns, setCanvaDesigns] = useState(null);
+  const [canvaLoading, setCanvaLoading] = useState(false);
+  const [canvaError, setCanvaError] = useState(null);
 
-  // Check API status on mount
+  // Check API + Canva status on mount
   useEffect(() => {
     fetch("/api/health")
       .then((r) => r.json())
       .then(setApiStatus)
       .catch(() => setApiStatus({ status: "error", hasApiKey: false }));
+    fetch("/api/canva/status")
+      .then((r) => r.json())
+      .then(setCanvaStatus)
+      .catch(() => setCanvaStatus({ connected: false, enabled: false }));
+    // Handle canva oauth redirect result
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("canva") === "connected") {
+      setCanvaStatus((s) => ({ ...s, connected: true }));
+      window.history.replaceState({}, "", "/");
+    }
   }, []);
 
   const togglePlatform = (id) => {
@@ -158,13 +172,44 @@ export default function AgenteContenido() {
 
       setResult(data);
       setActivePlatformTab(selectedPlatforms[0]);
+      setCanvaDesigns(null);
+      setCanvaError(null);
       setStep(2);
+
+      // Auto-trigger Canva designs if connected
+      if (canvaStatus?.connected) {
+        generateCanvaDesignsFromResult(data, selectedPlatforms[0]);
+      }
     } catch (err) {
       setError(err.message);
       setStep(0);
     } finally {
       clearInterval(interval);
       setGenerating(false);
+    }
+  };
+
+  const generateCanvaDesignsFromResult = async (data, platform) => {
+    setCanvaLoading(true);
+    setCanvaError(null);
+    try {
+      const res = await fetch("/api/canva/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caption: data.caption,
+          imagePrompt: data.imagePrompt,
+          productName,
+          platform: platform || selectedPlatforms[0],
+        }),
+      });
+      const canvaData = await res.json();
+      if (!res.ok) throw new Error(canvaData.message || canvaData.error);
+      setCanvaDesigns(canvaData.designs || []);
+    } catch (err) {
+      setCanvaError(err.message);
+    } finally {
+      setCanvaLoading(false);
     }
   };
 
@@ -212,20 +257,39 @@ export default function AgenteContenido() {
                 </p>
               </div>
             </div>
-            {apiStatus && (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 12px", borderRadius: 20,
-                background: apiStatus.hasApiKey ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)",
-                fontSize: 12, fontWeight: 500,
-              }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {apiStatus && (
                 <div style={{
-                  width: 8, height: 8, borderRadius: "50%",
-                  background: apiStatus.hasApiKey ? "#10b981" : "#ef4444",
-                }} />
-                {apiStatus.hasApiKey ? "API Conectada" : "API No Configurada"}
-              </div>
-            )}
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "6px 12px", borderRadius: 20,
+                  background: apiStatus.hasApiKey ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)",
+                  fontSize: 12, fontWeight: 500,
+                }}>
+                  <div style={{
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: apiStatus.hasApiKey ? "#10b981" : "#ef4444",
+                  }} />
+                  {apiStatus.hasApiKey ? "Claude ✓" : "Sin API Key"}
+                </div>
+              )}
+              {canvaStatus?.enabled && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "6px 12px", borderRadius: 20,
+                  background: canvaStatus.connected ? "rgba(124,58,237,0.25)" : "rgba(255,255,255,0.15)",
+                  fontSize: 12, fontWeight: 500, cursor: canvaStatus.connected ? "default" : "pointer",
+                  textDecoration: "none", color: "white",
+                }}
+                  onClick={() => !canvaStatus.connected && window.location.assign("/auth/canva")}
+                >
+                  <div style={{
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: canvaStatus.connected ? "#a78bfa" : "rgba(255,255,255,0.5)",
+                  }} />
+                  {canvaStatus.connected ? "Canva ✓" : "Conectar Canva"}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -453,20 +517,157 @@ export default function AgenteContenido() {
               </div>
             </ContentCard>
 
-            {/* Image prompt */}
-            <ContentCard title="🎨 Prompt para imagen IA" accent="#ec4899">
-              <div style={{
-                background: "#fdf2f8", borderRadius: 10, padding: 16,
-                fontSize: 13, color: "#831843", lineHeight: 1.6, fontStyle: "italic",
-              }}>
-                {result.imagePrompt}
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
-                <CopyButton text={result.imagePrompt} />
-                <span style={{ fontSize: 12, color: "#94a3b8" }}>
-                  Usa en DALL-E, Midjourney o Leonardo.ai
-                </span>
-              </div>
+            {/* ── Canva Designs Panel ─────────────────────────────── */}
+            <ContentCard title="🎨 Diseños en Canva" accent="#7c3aed">
+              {/* Not configured */}
+              {!canvaStatus?.enabled && (
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 12px" }}>
+                    Conecta Canva para generar diseños automáticamente desde tu contenido.
+                  </p>
+                  <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                    Configura <code>CANVA_CLIENT_ID</code> y <code>CANVA_CLIENT_SECRET</code> en tu entorno.
+                  </span>
+                </div>
+              )}
+
+              {/* Enabled but not connected */}
+              {canvaStatus?.enabled && !canvaStatus?.connected && (
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 16px" }}>
+                    Conecta tu cuenta de Canva para generar diseños visuales automáticamente.
+                  </p>
+                  <a href="/auth/canva" style={{
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                    padding: "12px 24px", borderRadius: 10, background: "#7c3aed",
+                    color: "white", fontWeight: 600, fontSize: 14,
+                    textDecoration: "none",
+                  }}>
+                    🔗 Conectar con Canva
+                  </a>
+                </div>
+              )}
+
+              {/* Connected: loading */}
+              {canvaStatus?.connected && canvaLoading && (
+                <div style={{ textAlign: "center", padding: "24px 0" }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: "50%", margin: "0 auto 16px",
+                    border: "3px solid #e2e8f0", borderTopColor: "#7c3aed",
+                    animation: "spin 1s linear infinite",
+                  }} />
+                  <p style={{ color: "#7c3aed", fontSize: 14, fontWeight: 600, margin: 0 }}>
+                    Generando diseños en Canva...
+                  </p>
+                </div>
+              )}
+
+              {/* Connected: error */}
+              {canvaStatus?.connected && !canvaLoading && canvaError && (
+                <div style={{ padding: "12px 16px", background: "#fef2f2", borderRadius: 10, marginBottom: 12 }}>
+                  <p style={{ color: "#991b1b", fontSize: 13, margin: "0 0 8px" }}>
+                    ⚠️ {canvaError}
+                  </p>
+                  <button onClick={() => generateCanvaDesignsFromResult(result, activePlatformTab)}
+                    style={{
+                      padding: "6px 14px", borderRadius: 8, border: "1px solid #fca5a5",
+                      background: "white", cursor: "pointer", fontSize: 12, color: "#991b1b",
+                    }}>
+                    🔄 Reintentar
+                  </button>
+                </div>
+              )}
+
+              {/* Connected: designs ready */}
+              {canvaStatus?.connected && !canvaLoading && canvaDesigns && canvaDesigns.length > 0 && (
+                <>
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${Math.min(canvaDesigns.length, 2)}, 1fr)`,
+                    gap: 12, marginBottom: 16,
+                  }}>
+                    {canvaDesigns.map((design, i) => (
+                      <a key={design.id || i} href={design.editUrl} target="_blank" rel="noopener"
+                        style={{ textDecoration: "none", display: "block" }}>
+                        <div style={{
+                          borderRadius: 12, overflow: "hidden",
+                          border: "2px solid #e2e8f0",
+                          transition: "border-color 0.2s, transform 0.15s",
+                          cursor: "pointer",
+                        }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = "#7c3aed"; e.currentTarget.style.transform = "scale(1.02)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.transform = "scale(1)"; }}
+                        >
+                          {design.thumbnail
+                            ? <img src={design.thumbnail} alt={`Diseño ${i + 1}`}
+                                style={{ width: "100%", display: "block", aspectRatio: "1/1", objectFit: "cover" }} />
+                            : <div style={{
+                                aspectRatio: "1/1", background: "linear-gradient(135deg,#eef2ff,#faf5ff)",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 40,
+                              }}>🎨</div>
+                          }
+                          <div style={{
+                            padding: "8px 12px", background: "white",
+                            display: "flex", justifyContent: "space-between", alignItems: "center",
+                          }}>
+                            <span style={{ fontSize: 12, color: "#64748b" }}>
+                              {design.source === "brand_template"
+                                ? `📐 ${design.templateName || "Plantilla"}`
+                                : "📄 Canvas en blanco"}
+                            </span>
+                            <span style={{ fontSize: 11, color: "#7c3aed", fontWeight: 600 }}>
+                              Editar →
+                            </span>
+                          </div>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <button onClick={() => generateCanvaDesignsFromResult(result, activePlatformTab)}
+                      style={{
+                        padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd6fe",
+                        background: "white", cursor: "pointer", fontSize: 13, color: "#7c3aed",
+                      }}>
+                      🔄 Nuevas propuestas
+                    </button>
+                    <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                      Haz clic en cualquier diseño para editarlo en Canva
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {/* Connected: no designs found */}
+              {canvaStatus?.connected && !canvaLoading && canvaDesigns && canvaDesigns.length === 0 && (
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <p style={{ color: "#64748b", fontSize: 14 }}>
+                    No se encontraron plantillas. Crea una plantilla de marca en Canva para verla aquí.
+                  </p>
+                  <button onClick={() => generateCanvaDesignsFromResult(result, activePlatformTab)}
+                    style={{
+                      padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd6fe",
+                      background: "white", cursor: "pointer", fontSize: 13, color: "#7c3aed",
+                    }}>
+                    🔄 Reintentar
+                  </button>
+                </div>
+              )}
+
+              {/* Connected but not triggered yet: show manual button */}
+              {canvaStatus?.connected && !canvaLoading && !canvaDesigns && !canvaError && (
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <button onClick={() => generateCanvaDesignsFromResult(result, activePlatformTab)}
+                    style={{
+                      padding: "12px 24px", borderRadius: 10, border: "none",
+                      background: "linear-gradient(135deg,#7c3aed,#a855f7)",
+                      color: "white", fontWeight: 600, fontSize: 14, cursor: "pointer",
+                    }}>
+                    ✨ Generar diseños en Canva
+                  </button>
+                </div>
+              )}
             </ContentCard>
 
             {/* Best time */}
