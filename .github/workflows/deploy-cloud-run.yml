@@ -52,5 +52,5 @@ jobs:
             --cpu 1 \
             --min-instances 0 \
             --max-instances 5 \
-            --update-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" \
+            --update-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,CANVA_CLIENT_ID=CANVA_CLIENT_ID:latest,CANVA_CLIENT_SECRET=CANVA_CLIENT_SECRET:latest,CANVA_REDIRECT_URI=CANVA_REDIRECT_URI:latest" \
             --set-env-vars "STORE_NAME=Mi Tienda,STORE_DESCRIPTION=Tienda online de productos premium"
